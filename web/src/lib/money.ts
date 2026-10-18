@@ -22,6 +22,22 @@ export function parseAmountToKopecks(input: string): number {
   return kopecks
 }
 
+// Остаток на счёте может быть нулевым — в отличие от суммы операции.
+export function parseBalanceToKopecks(input: string): number {
+  const cleaned = String(input ?? '').replace(WHITESPACE, '').replace(',', '.')
+
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) {
+    throw new InvalidAmountError()
+  }
+
+  const kopecks = Math.round(Number(cleaned) * 100)
+  if (!Number.isFinite(kopecks) || kopecks < 0) {
+    throw new InvalidAmountError()
+  }
+
+  return kopecks
+}
+
 export function formatKopecks(kopecks: number): string {
   const sign = kopecks < 0 ? '−' : ''
   const abs = Math.abs(Math.round(kopecks))
