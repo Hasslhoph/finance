@@ -37,6 +37,46 @@ if (typeof globalThis.localStorage?.clear !== 'function') {
   })
 }
 
+type MediaListener = (event: { matches: boolean }) => void
+
+const listeners = new Set<MediaListener>()
+
+function matchesQuery(query: string): boolean {
+  const width = window.innerWidth
+  if (query.includes('max-width: 767px')) return width <= 767
+  if (query.includes('min-width: 768px')) return width >= 768
+  return false
+}
+
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    media: query,
+    get matches() {
+      return matchesQuery(query)
+    },
+    onchange: null,
+    addEventListener: (_type: string, listener: MediaListener) => {
+      listeners.add(listener)
+    },
+    removeEventListener: (_type: string, listener: MediaListener) => {
+      listeners.delete(listener)
+    },
+    addListener: (listener: MediaListener) => listeners.add(listener),
+    removeListener: (listener: MediaListener) => listeners.delete(listener),
+    dispatchEvent: () => true,
+  })) as typeof window.matchMedia
+}
+
+export function setViewportWidth(width: number): void {
+  window.innerWidth = width
+  for (const listener of listeners) {
+    listener({ matches: true })
+  }
+}
+
+Object.defineProperty(globalThis, '__setViewportWidth', { value: setViewportWidth, configurable: true })
+
 beforeEach(() => {
   localStorage.clear()
+  setViewportWidth(1280)
 })
