@@ -13,5 +13,9 @@ export function openDatabase(path: string): Db {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   db.pragma('busy_timeout = 5000')
+  // SQLite lower() понимает только ASCII, а комментарии у нас на русском.
+  db.function('lower_ru', { deterministic: true }, (value: unknown) =>
+    String(value ?? '').toLocaleLowerCase('ru-RU'),
+  )
   return db
 }
