@@ -72,11 +72,11 @@ export function rawTx(db: Db, input: RawTxInput): number {
 export function buildTestApp(db: Db): FastifyInstance {
   const app = Fastify()
   app.decorate('db', db)
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ error: error.issues[0]?.message ?? 'Неверные данные' })
     }
-    const status = (error as { statusCode?: number }).statusCode ?? 400
+    const status = error.statusCode ?? 400
     return reply.code(status).send({ error: error.message })
   })
   return app

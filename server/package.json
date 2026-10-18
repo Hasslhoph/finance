@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json && cp -r src/db/migrations dist/db/",
+    "build": "rm -rf dist && tsc -p tsconfig.json && cp -r src/db/migrations dist/db/",
     "start": "node dist/index.js",
     "test": "vitest run",
     "hash-password": "tsx src/scripts/hash-password.ts"
