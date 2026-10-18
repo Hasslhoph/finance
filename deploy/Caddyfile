@@ -1,3 +1,11 @@
+{
+	# UDP 443 занят AmneziaWG, поэтому HTTP/3 (QUIC) выключаем — иначе Caddy
+	# не сможет занять порт. Работаем на TCP: h1 + h2.
+	servers {
+		protocols h1 h2
+	}
+}
+
 {$DOMAIN} {
 	encode zstd gzip
 

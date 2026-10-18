@@ -38,7 +38,16 @@ else
   echo "caddy уже установлен"
 fi
 
-echo "== 4. сборка нативных модулей и sqlite3"
+echo "== 3b. Caddy: каталог логов и чтение домена из environment"
+install -d -o caddy -g caddy -m 755 /var/log/caddy
+# Юнит из пакета не читает /etc/caddy/environment — без этого {$DOMAIN} пустой
+# и Caddy поднимается как сайт на :80 без HTTPS.
+mkdir -p /etc/systemd/system/caddy.service.d
+printf '[Service]\nEnvironmentFile=-/etc/caddy/environment\n' > /etc/systemd/system/caddy.service.d/environment.conf
+
+echo "== 4. сборка нативных модулей, sqlite3, rsync, cron"
+command -v rsync >/dev/null || apt-get install -y rsync
+command -v crontab >/dev/null || { apt-get install -y cron; systemctl enable --now cron; }
 dpkg -s build-essential >/dev/null 2>&1 || apt-get install -y build-essential python3
 command -v sqlite3 >/dev/null || apt-get install -y sqlite3
 
@@ -65,6 +74,7 @@ if [ -n "$DOMAIN" ]; then
   fi
   install -m 644 "$SCRIPT_DIR/family-finance.service" /etc/systemd/system/family-finance.service
   systemctl daemon-reload
+  systemctl enable caddy >/dev/null 2>&1 || true
   echo "установлено, домен: $DOMAIN"
 else
   echo "домен не передан — конфиги не тронуты"

@@ -50,6 +50,15 @@ ssh root@82.25.39.32 "install -m 600 /dev/stdin /etc/family-finance/env" < св�
 bash deploy/push.sh
 ```
 
+Грабли, на которые уже наступили (учтены в `setup-server.sh` и `Caddyfile`):
+
+- UDP 443 на сервере занят Амnezia, поэтому у Caddy выключен HTTP/3 (`protocols h1 h2`) —
+  иначе он не может занять порт и падает.
+- Юнит Caddy из пакета не читает `/etc/caddy/environment`: нужен drop-in
+  `/etc/systemd/system/caddy.service.d/environment.conf` с `EnvironmentFile`, иначе
+  `{$DOMAIN}` пустой и HTTPS не поднимается.
+- На сервере не было `cron` и `rsync` — скрипт их ставит сам.
+
 Проверка:
 
 ```bash
