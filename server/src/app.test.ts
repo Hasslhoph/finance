@@ -75,11 +75,37 @@ describe('buildApp', () => {
     expect(response.statusCode).toBe(401)
   })
 
-  it('11-я попытка за период — 429', async () => {
+  it('11-я неудачная попытка за период — 429', async () => {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       await login('nope')
     }
     expect((await login('nope')).statusCode).toBe(429)
+  })
+
+  it('верный пароль не блокируется после многих неудач', async () => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await login('nope')
+    }
+    expect((await login(PASSWORD)).statusCode).toBe(204)
+  })
+
+  it('десяток успешных входов не упирается в лимит', async () => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      expect((await login(PASSWORD)).statusCode).toBe(204)
+    }
+  })
+
+  it('внутренняя ошибка отдаётся как 500 и не раскрывает детали', async () => {
+    app.get('/api/boom', async () => {
+      throw new Error('SQLITE_ERROR: no such table: secret_table')
+    })
+
+    const cookie = (await login(PASSWORD)).cookies[0]
+    const response = await app.inject({ url: '/api/boom', cookies: { [cookie.name]: cookie.value } })
+
+    expect(response.statusCode).toBe(500)
+    expect(response.json().error).not.toMatch(/sqlite|secret_table/i)
+    expect(response.json().error).toMatch(/сервер/i)
   })
 
   it('me возвращает состояние входа', async () => {

@@ -6,6 +6,18 @@ import { QuickAdd } from './QuickAdd.js'
 import { ApiError, api } from '../api/client.js'
 import type { Account, Category } from '../api/types.js'
 
+const INTEREST: Category = {
+  id: 101,
+  name: 'Проценты по вкладу',
+  groupName: 'Доход',
+  kind: 'income',
+  color: '#4ADE80',
+  icon: '🏦',
+  slug: 'interest-income',
+  archived: false,
+  sortOrder: 100,
+}
+
 const CATEGORIES: Category[] = [
   {
     id: 1,
@@ -43,11 +55,22 @@ const ACCOUNTS: Account[] = [
     sortOrder: 1,
     balance: 0,
   },
+  {
+    id: 8,
+    name: 'Вклад Саши',
+    kind: 'deposit',
+    owner: 'sasha',
+    openingBalance: 0,
+    openingDate: '2026-10-01',
+    archived: false,
+    sortOrder: 4,
+    balance: 0,
+  },
 ]
 
 function mockApi() {
   vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
-    if (path === '/api/categories') return { items: CATEGORIES } as never
+    if (path === '/api/categories') return { items: [...CATEGORIES, INTEREST] } as never
     if (path === '/api/accounts') return { items: ACCOUNTS } as never
     throw new Error(`Неожиданный путь ${path}`)
   })
@@ -193,6 +216,59 @@ describe('QuickAdd', () => {
     await userEvent.click(within(item).getByRole('button', { name: /Убрать/ }))
 
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
+  })
+
+  it('сохраняет доход с категорией дохода', async () => {
+    const post = mockApi()
+    renderQuickAdd()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Доход' }))
+    await userEvent.type(screen.getByLabelText('Сумма'), '50000')
+    await userEvent.click(await screen.findByRole('button', { name: /Проценты по вкладу/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Добавить в список' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить 1' }))
+
+    const [, body] = post.mock.calls[0] as [string, { items: Array<Record<string, unknown>> }]
+    expect(body.items[0]).toMatchObject({ kind: 'income', amount: 5_000_000, categoryId: 101, person: 'sasha' })
+  })
+
+  it('в режиме дохода показывает только категории дохода', async () => {
+    mockApi()
+    renderQuickAdd()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Доход' }))
+
+    expect(await screen.findByRole('button', { name: /Проценты по вкладу/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Продукты/ })).not.toBeInTheDocument()
+  })
+
+  it('сохраняет перевод между счетами без категории', async () => {
+    const post = mockApi()
+    renderQuickAdd()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Перевод' }))
+    await userEvent.type(screen.getByLabelText('Сумма'), '10000')
+    await userEvent.selectOptions(screen.getByLabelText('Со счёта'), '7')
+    await userEvent.selectOptions(screen.getByLabelText('На счёт'), '8')
+    await userEvent.click(screen.getByRole('button', { name: 'Добавить в список' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить 1' }))
+
+    const [, body] = post.mock.calls[0] as [string, { items: Array<Record<string, unknown>> }]
+    expect(body.items[0]).toMatchObject({ kind: 'transfer', amount: 1_000_000, accountId: 7, transferAccountId: 8 })
+    expect(body.items[0].categoryId).toBeUndefined()
+  })
+
+  it('перевод требует разные счета', async () => {
+    mockApi()
+    renderQuickAdd()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Перевод' }))
+    await userEvent.type(screen.getByLabelText('Сумма'), '10000')
+    await userEvent.selectOptions(screen.getByLabelText('Со счёта'), '7')
+    await userEvent.selectOptions(screen.getByLabelText('На счёт'), '7')
+    await userEvent.click(screen.getByRole('button', { name: 'Добавить в список' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/разные счета/i)
   })
 
   it('при ошибке сервера список записей не теряется', async () => {

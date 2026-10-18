@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { InvalidAmountError, formatKopecks, parseAmountToKopecks } from './money.js'
+import { InvalidAmountError, MAX_AMOUNT_KOPECKS, formatKopecks, parseAmountToKopecks } from './money.js'
 
 describe('parseAmountToKopecks', () => {
   it('принимает рубли с запятой и копейками', () => {
@@ -28,6 +28,15 @@ describe('parseAmountToKopecks', () => {
   })
   it('отвергает пустую строку', () => {
     expect(() => parseAmountToKopecks('')).toThrow(InvalidAmountError)
+  })
+  it('отвергает сумму с 19 знаками — она ломает целочисленные копейки', () => {
+    expect(() => parseAmountToKopecks('99999999999999999999')).toThrow(InvalidAmountError)
+  })
+  it('отвергает сумму выше потолка', () => {
+    expect(() => parseAmountToKopecks('20000000000,01')).toThrow(/большая/i)
+  })
+  it('принимает сумму на потолке', () => {
+    expect(parseAmountToKopecks('10000000000')).toBe(MAX_AMOUNT_KOPECKS)
   })
 })
 

@@ -24,7 +24,9 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db; config: Confi
   const { db, config } = deps
   const attempts = new Map<string, { count: number; resetAt: number }>()
 
-  function tooManyAttempts(key: string): boolean {
+  // Считаем только неудачные попытки и никогда не блокируем верный пароль:
+  // сервис на одного пользователя, и подбор пароля не должен его запирать снаружи.
+  function registerFailure(key: string): boolean {
     const now = Date.now()
     const entry = attempts.get(key)
 
@@ -39,17 +41,19 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db; config: Confi
 
   app.post('/api/auth/login', async (request, reply) => {
     const body = loginSchema.parse(request.body)
-
-    if (tooManyAttempts(request.ip)) {
-      return reply.code(429).send({ error: 'Слишком много попыток входа, попробуйте позже' })
-    }
+    const key = `${request.ip}|${body.login}`
 
     const loginOk = safeEqual(body.login, config.login)
     const passwordOk = verifyPassword(body.password, config.passwordHash)
 
     if (!loginOk || !passwordOk) {
+      if (registerFailure(key)) {
+        return reply.code(429).send({ error: 'Слишком много попыток входа, попробуйте позже' })
+      }
       return reply.code(401).send({ error: 'Неверный логин или пароль' })
     }
+
+    attempts.delete(key)
 
     const token = createSession(db, config.sessionTtlDays)
     reply.setCookie(SESSION_COOKIE, token, {

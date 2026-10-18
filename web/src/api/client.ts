@@ -9,6 +9,7 @@ export class ApiError extends Error {
 }
 
 export const UNAUTHORIZED_EVENT = 'ff:unauthorized'
+export const AUTHORIZED_EVENT = 'ff:authorized'
 
 type Query = Record<string, string | number | boolean | undefined | null>
 

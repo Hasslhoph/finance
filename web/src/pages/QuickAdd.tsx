@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client.js'
-import type { Account, Category, Person } from '../api/types.js'
+import type { Account, Category, Person, TransactionKind } from '../api/types.js'
 import { AmountInput } from '../components/AmountInput.js'
 import { CategoryPicker } from '../components/CategoryPicker.js'
 import { PersonToggle } from '../components/PersonToggle.js'
@@ -9,17 +9,25 @@ import { formatRub, parseAmountToKopecks } from '../lib/money.js'
 
 const LAST_CATEGORY = 'ff.lastCategory'
 const LAST_ACCOUNT = 'ff.lastAccount'
+const LAST_TRANSFER = 'ff.lastTransferAccount'
+
+const KINDS: Array<{ id: TransactionKind; label: string }> = [
+  { id: 'expense', label: 'Расход' },
+  { id: 'income', label: 'Доход' },
+  { id: 'transfer', label: 'Перевод' },
+]
 
 interface Draft {
-  kind: 'expense'
+  kind: TransactionKind
   date: string
   amount: number
   accountId: number
-  categoryId: number
-  person: Person
+  transferAccountId?: number
+  categoryId?: number
+  person?: Person
   comment: string
-  categoryName: string
-  categoryColor: string
+  title: string
+  color: string
 }
 
 function plural(count: number, one: string, few: string, many: string): string {
@@ -32,11 +40,13 @@ function plural(count: number, one: string, few: string, many: string): string {
 }
 
 export function QuickAdd() {
+  const [kind, setKind] = useState<TransactionKind>('expense')
   const [categories, setCategories] = useState<Category[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState<Category | null>(null)
   const [accountId, setAccountId] = useState<number | null>(null)
+  const [transferAccountId, setTransferAccountId] = useState<number | null>(null)
   const [person, setPerson] = useState<Person>('sasha')
   const [comment, setComment] = useState('')
   const [date, setDate] = useState(todayIso())
@@ -50,7 +60,7 @@ export function QuickAdd() {
     void (async () => {
       try {
         const [categoryResponse, accountResponse] = await Promise.all([
-          api.get<{ items: Category[] }>('/api/categories', { kind: 'expense' }),
+          api.get<{ items: Category[] }>('/api/categories'),
           api.get<{ items: Account[] }>('/api/accounts'),
         ])
 
@@ -59,13 +69,23 @@ export function QuickAdd() {
 
         const rememberedCategory = localStorage.getItem(LAST_CATEGORY)
         const rememberedAccount = localStorage.getItem(LAST_ACCOUNT)
+        const rememberedTransfer = localStorage.getItem(LAST_TRANSFER)
 
-        setCategory((current) => current ?? categoryResponse.items.find((item) => item.name === rememberedCategory) ?? null)
+        setCategory(
+          (current) => current ?? categoryResponse.items.find((item) => item.name === rememberedCategory) ?? null,
+        )
         setAccountId(
           (current) =>
             current ??
             accountResponse.items.find((item) => item.name === rememberedAccount)?.id ??
             accountResponse.items[0]?.id ??
+            null,
+        )
+        setTransferAccountId(
+          (current) =>
+            current ??
+            accountResponse.items.find((item) => item.name === rememberedTransfer)?.id ??
+            accountResponse.items[1]?.id ??
             null,
         )
       } catch (caught) {
@@ -79,6 +99,17 @@ export function QuickAdd() {
   }, [])
 
   const queueTotal = useMemo(() => queue.reduce((sum, item) => sum + item.amount, 0), [queue])
+  const visibleCategories = useMemo(
+    () => categories.filter((item) => item.kind === (kind === 'income' ? 'income' : 'expense')),
+    [categories, kind],
+  )
+
+  function switchKind(next: TransactionKind) {
+    setKind(next)
+    setError(null)
+    setToast(null)
+    amountRef.current?.focus()
+  }
 
   function addToList() {
     setToast(null)
@@ -86,8 +117,45 @@ export function QuickAdd() {
     let kopecks: number
     try {
       kopecks = parseAmountToKopecks(amount)
-    } catch {
-      setError('Неверная сумма')
+    } catch (caught) {
+      setError(caught instanceof Error && caught.message !== 'Неверная сумма' ? caught.message : 'Неверная сумма')
+      return
+    }
+
+    if (kind === 'transfer') {
+      if (!accountId || !transferAccountId) {
+        setError('Выберите счёт-источник и счёт-получатель')
+        return
+      }
+      if (accountId === transferAccountId) {
+        setError('Нужны разные счета: перевод на тот же счёт бессмысленен')
+        return
+      }
+
+      const from = accounts.find((item) => item.id === accountId)
+      const to = accounts.find((item) => item.id === transferAccountId)
+
+      setQueue((current) => [
+        ...current,
+        {
+          kind: 'transfer',
+          date,
+          amount: kopecks,
+          accountId,
+          transferAccountId,
+          comment: comment.trim(),
+          title: `${from?.name ?? 'Счёт'} → ${to?.name ?? 'Счёт'}`,
+          color: '#8B98A8',
+        },
+      ])
+
+      if (to) {
+        localStorage.setItem(LAST_TRANSFER, to.name)
+      }
+      setAmount('')
+      setComment('')
+      setError(null)
+      amountRef.current?.focus()
       return
     }
 
@@ -103,15 +171,15 @@ export function QuickAdd() {
     setQueue((current) => [
       ...current,
       {
-        kind: 'expense',
+        kind,
         date,
         amount: kopecks,
         accountId,
         categoryId: category.id,
         person,
         comment: comment.trim(),
-        categoryName: category.name,
-        categoryColor: category.color,
+        title: category.name,
+        color: category.color,
       },
     ])
 
@@ -142,8 +210,9 @@ export function QuickAdd() {
           date: item.date,
           amount: item.amount,
           accountId: item.accountId,
-          categoryId: item.categoryId,
-          person: item.person,
+          ...(item.categoryId ? { categoryId: item.categoryId } : {}),
+          ...(item.transferAccountId ? { transferAccountId: item.transferAccountId } : {}),
+          ...(item.person ? { person: item.person } : {}),
           comment: item.comment,
         })),
       })
@@ -162,10 +231,30 @@ export function QuickAdd() {
   return (
     <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
       <section className="rounded-2xl border border-border bg-surface p-5">
-        <h1 className="text-2xl font-semibold tracking-tight">Добавить трату</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Добавить операцию</h1>
         <p className="mt-1 text-sm text-muted">
           Внесите несколько записей подряд и сохраните одной кнопкой.
         </p>
+
+        <div
+          role="group"
+          aria-label="Вид операции"
+          className="mt-4 flex rounded-xl border border-border bg-surface p-1"
+        >
+          {KINDS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={kind === item.id}
+              onClick={() => switchKind(item.id)}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${
+                kind === item.id ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
 
         <div className="mt-5 space-y-5">
           <AmountInput
@@ -178,15 +267,60 @@ export function QuickAdd() {
             onEnter={addToList}
           />
 
-          <PersonToggle value={person} onChange={setPerson} />
+          {kind !== 'transfer' && <PersonToggle value={person} onChange={setPerson} />}
 
-          <CategoryPicker
-            categories={categories}
-            value={category?.id ?? null}
-            onChange={setCategory}
-          />
+          {kind === 'transfer' ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="from-account" className="text-sm text-muted">
+                  Со счёта
+                </label>
+                <select
+                  id="from-account"
+                  value={accountId ?? ''}
+                  onChange={(event) => setAccountId(Number(event.target.value))}
+                  className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-base"
+                >
+                  <option value="" disabled>
+                    Выберите счёт
+                  </option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="to-account" className="text-sm text-muted">
+                  На счёт
+                </label>
+                <select
+                  id="to-account"
+                  value={transferAccountId ?? ''}
+                  onChange={(event) => setTransferAccountId(Number(event.target.value))}
+                  className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-base"
+                >
+                  <option value="" disabled>
+                    Выберите счёт
+                  </option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <CategoryPicker
+              categories={visibleCategories}
+              value={category?.kind === (kind === 'income' ? 'income' : 'expense') ? category.id : null}
+              onChange={setCategory}
+            />
+          )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          {kind !== 'transfer' && (
             <div>
               <label htmlFor="account" className="text-sm text-muted">
                 Счёт
@@ -207,7 +341,9 @@ export function QuickAdd() {
                 ))}
               </select>
             </div>
+          )}
 
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="date" className="text-sm text-muted">
                 Дата
@@ -220,19 +356,18 @@ export function QuickAdd() {
                 className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-base"
               />
             </div>
-          </div>
-
-          <div>
-            <label htmlFor="comment" className="text-sm text-muted">
-              Комментарий
-            </label>
-            <input
-              id="comment"
-              value={comment}
-              placeholder="Например: продукты на неделю, Пятёрочка"
-              onChange={(event) => setComment(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-base outline-none"
-            />
+            <div>
+              <label htmlFor="comment" className="text-sm text-muted">
+                Комментарий
+              </label>
+              <input
+                id="comment"
+                value={comment}
+                placeholder={kind === 'transfer' ? 'Например: на вклад' : 'Например: продукты на неделю'}
+                onChange={(event) => setComment(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-base outline-none"
+              />
+            </div>
           </div>
         </div>
 
@@ -262,25 +397,27 @@ export function QuickAdd() {
 
         {queue.length === 0 ? (
           <p className="mt-3 text-sm text-muted">
-            Список пуст. Добавьте траты — и сохраните их одной кнопкой.
+            Список пуст. Добавьте операции — и сохраните их одной кнопкой.
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
             {queue.map((item, index) => (
               <li
-                key={`${item.categoryId}-${item.amount}-${index}`}
+                key={`${item.kind}-${item.title}-${item.amount}-${index}`}
                 className="flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm"
               >
                 <span
                   aria-hidden="true"
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ background: item.categoryColor }}
+                  style={{ background: item.color }}
                 />
                 <span className="min-w-0 flex-1 truncate">
-                  {item.categoryName}
+                  <span className={item.kind === 'income' ? 'text-positive' : undefined}>{item.title}</span>
                   {item.comment ? <span className="text-muted"> · {item.comment}</span> : null}
                 </span>
-                <span className="tabular-nums">{formatRub(item.amount)}</span>
+                <span className={`tabular-nums ${item.kind === 'income' ? 'text-positive' : ''}`}>
+                  {formatRub(item.kind === 'income' ? item.amount : item.kind === 'expense' ? -item.amount : item.amount)}
+                </span>
                 <button
                   type="button"
                   aria-label="Убрать запись"

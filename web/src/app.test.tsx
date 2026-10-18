@@ -1,6 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
-import { api } from './api/client.js'
+import userEvent from '@testing-library/user-event'
+import { ApiError, api } from './api/client.js'
 import type { Account, Category } from './api/types.js'
 import { renderApp, setViewport } from './test-utils.js'
 
@@ -26,10 +27,11 @@ const DASHBOARD = {
   insights: [],
 }
 
-function mockApi() {
+function mockApi(authenticated = true) {
   vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
     switch (path) {
       case '/api/auth/me':
+        if (!authenticated) throw new ApiError('Требуется вход', 401)
         return { authenticated: true } as never
       case '/api/dashboard':
         return DASHBOARD as never
@@ -39,15 +41,20 @@ function mockApi() {
         return { items: ACCOUNTS } as never
       case '/api/categories':
         return { items: CATEGORIES } as never
+      case '/api/settings':
+        return { insights: { threshold: 1.5, minExcess: 200_000 } } as never
       default:
         if (path.endsWith('/checks')) return { items: [] } as never
         throw new Error(`Неожиданный путь ${path}`)
     }
   })
+
+  return vi.spyOn(api, 'post').mockResolvedValue(undefined as never)
 }
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  window.history.replaceState(null, '', '/')
   mockApi()
 })
 
@@ -81,5 +88,36 @@ describe('App', () => {
   it('на неизвестном пути показывает обзор', async () => {
     renderApp('/nope')
     expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeInTheDocument()
+  })
+
+  it('без сессии показывает форму входа', async () => {
+    vi.restoreAllMocks()
+    mockApi(false)
+
+    renderApp('/')
+
+    expect(await screen.findByRole('button', { name: 'Войти' })).toBeInTheDocument()
+  })
+
+  it('после успешного входа открывает обзор, а не возвращает на форму', async () => {
+    vi.restoreAllMocks()
+    mockApi(false)
+
+    renderApp('/')
+    await screen.findByRole('button', { name: 'Войти' })
+
+    // сервер теперь считает нас вошедшими
+    vi.mocked(api.get).mockImplementation(async (path: string) => {
+      if (path === '/api/auth/me') return { authenticated: true } as never
+      if (path === '/api/dashboard') return DASHBOARD as never
+      throw new Error(`Неожиданный путь ${path}`)
+    })
+
+    await userEvent.type(screen.getByLabelText('Логин'), 'sasha')
+    await userEvent.type(screen.getByLabelText('Пароль'), 'secret')
+    await userEvent.click(screen.getByRole('button', { name: 'Войти' }))
+
+    expect(await screen.findByRole('heading', { name: 'Обзор' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Войти' })).not.toBeInTheDocument()
   })
 })

@@ -73,6 +73,22 @@ describe('routes /api/transactions', () => {
     expect(response.json().total).toBe(1)
   })
 
+  it('preset фильтрует по календарным месяцам', async () => {
+    const dated = buildTestApp(db)
+    registerTransactions(dated, { db, now: () => new Date('2026-10-18T09:00:00Z') })
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/transactions/batch',
+      payload: { items: [tx({ date: '2026-08-05' }), tx({ date: '2026-07-05' })] },
+    })
+
+    const response = await dated.inject({ url: '/api/transactions?preset=3m' })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().total).toBe(1)
+    expect(response.json().items[0].date).toBe('2026-08-05')
+  })
+
   it('создаёт перевод и отдаёт его в ленте', async () => {
     const depositId = createAccount(db, {
       name: 'Вклад',

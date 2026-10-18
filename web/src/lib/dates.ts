@@ -37,6 +37,18 @@ export function formatMonthRu(iso: string): string {
   return `${MONTHS[month - 1].replace(/^(\w)/, (letter) => letter.toUpperCase())} ${year}`
 }
 
+export type Preset = 'month' | '3m' | '6m' | '12m'
+
+const PRESET_MONTHS: Record<Preset, number> = { month: 1, '3m': 3, '6m': 6, '12m': 12 }
+
+export function resolvePresetRange(
+  preset: Preset,
+  today: string = todayIso(),
+): { from: string; to: string } {
+  const months = PRESET_MONTHS[preset] ?? 1
+  return { from: shiftMonth(`${today.slice(0, 7)}-01`, -(months - 1)), to: today }
+}
+
 export function shiftMonth(iso: string, delta: number): string {
   const [year, month] = iso.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1 + delta, 1))

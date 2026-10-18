@@ -1,9 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { UNAUTHORIZED_EVENT, api } from '../api/client.js'
+
+interface SettingsResponse {
+  insights: { threshold: number; minExcess: number }
+}
 
 export function Settings() {
   const [error, setError] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
+  const [settings, setSettings] = useState<SettingsResponse | null>(null)
+
+  useEffect(() => {
+    api
+      .get<SettingsResponse>('/api/settings')
+      .then(setSettings)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить настройки'))
+  }, [])
 
   async function logout() {
     setLeaving(true)
@@ -29,7 +41,7 @@ export function Settings() {
         <h2 className="font-medium">Подсказки о перерасходе</h2>
         <p className="mt-1 text-sm text-muted">
           Категория попадает в подсказки, если вы потратили больше медианы трёх прошлых периодов и
-          превысили минимальную сумму. Значения задаются при настройке сервера.
+          превысили минимальную сумму. Значения берутся с сервера.
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -41,7 +53,7 @@ export function Settings() {
               id="threshold"
               type="number"
               step="0.1"
-              value={1.5}
+              value={settings?.insights.threshold ?? ''}
               readOnly
               className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-base text-muted"
             />
@@ -53,7 +65,7 @@ export function Settings() {
             <input
               id="min-excess"
               type="number"
-              value={2000}
+              value={settings ? settings.insights.minExcess / 100 : ''}
               readOnly
               className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-base text-muted"
             />

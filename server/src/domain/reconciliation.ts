@@ -93,7 +93,13 @@ export function checkBalance(db: Db, input: CheckInput): CheckResult {
 
   if (diff === 0) {
     if (existing?.correction_id) {
-      db.prepare('delete from transactions where id = ?').run(existing.correction_id)
+      // Ссылку снимаем до удаления: balance_checks ссылается на корректировку.
+      db.transaction(() => {
+        db.prepare('update balance_checks set correction_id = null where correction_id = ?').run(
+          existing.correction_id,
+        )
+        db.prepare('delete from transactions where id = ?').run(existing.correction_id)
+      })()
     }
     if (existing) {
       db.prepare('update balance_checks set computed = ?, actual = ?, diff = 0, correction_id = null where id = ?').run(

@@ -10,6 +10,7 @@ import { registerAuth } from './auth/routes.js'
 import { registerAccounts } from './routes/accounts.js'
 import { registerCategories } from './routes/categories.js'
 import { registerDashboard } from './routes/dashboard.js'
+import { registerSettings } from './routes/settings.js'
 import { registerTransactions } from './routes/transactions.js'
 
 export interface AppOptions {
@@ -22,15 +23,26 @@ export interface AppOptions {
 
 export function buildApp(options: AppOptions): FastifyInstance {
   const { db, config, now, staticRoot, logger = false } = options
-  const app = Fastify({ logger })
+  // За Caddy приложение видит только 127.0.0.1, поэтому реальный адрес клиента
+  // берём из X-Forwarded-For — иначе лимит входа общий на всех.
+  const app = Fastify({ logger, trustProxy: true })
 
   app.register(cookie)
 
-  app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ error: error.issues[0]?.message ?? 'Неверные данные' })
     }
-    const status = error.statusCode ?? 400
+
+    const status = error.statusCode ?? 500
+
+    if (status >= 500) {
+      // Наружу — только человеческое сообщение: в тексте ошибки SQLite могут быть
+      // имена таблиц и прочие внутренности.
+      request.log.error({ err: error }, 'внутренняя ошибка')
+      return reply.code(500).send({ error: 'Что-то сломалось на сервере, попробуйте ещё раз' })
+    }
+
     return reply.code(status).send({ error: error.message })
   })
 
@@ -39,6 +51,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerCategories(app, { db })
   registerTransactions(app, { db })
   registerDashboard(app, { db, now })
+  registerSettings(app)
 
   app.addHook('onRequest', async (request, reply) => {
     const url = request.url

@@ -171,6 +171,13 @@ export function createTransactions(db: Db, items: NewTransaction[]): Transaction
 
 export function updateTransaction(db: Db, id: number, patch: Partial<NewTransaction>): Transaction {
   const current = getTransaction(db, id)
+
+  if (!current.person && current.categoryId) {
+    const category = getCategory(db, current.categoryId)
+    if (category.slug?.startsWith('unrecognized-')) {
+      throw badRequest('Сверку нельзя править вручную — запустите сверку заново')
+    }
+  }
   const merged: NewTransaction = {
     kind: patch.kind ?? current.kind,
     date: patch.date ?? current.date,
@@ -206,7 +213,14 @@ export function updateTransaction(db: Db, id: number, patch: Partial<NewTransact
 
 export function deleteTransaction(db: Db, id: number): void {
   getTransaction(db, id)
-  db.prepare('delete from transactions where id = ?').run(id)
+
+  // Операция может быть корректировкой сверки: на неё ссылается balance_checks,
+  // поэтому сначала снимаем ссылку (иначе FOREIGN KEY не даст удалить), а саму
+  // запись о сверке убираем — она без корректировки бессмысленна.
+  db.transaction(() => {
+    db.prepare('delete from balance_checks where correction_id = ?').run(id)
+    db.prepare('delete from transactions where id = ?').run(id)
+  })()
 }
 
 export function listTransactions(db: Db, filter: TransactionFilter = {}): { items: Transaction[]; total: number } {

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, api } from '../api/client.js'
+import { AUTHORIZED_EVENT, ApiError, api } from '../api/client.js'
 
 export function Login() {
   const navigate = useNavigate()
@@ -22,6 +22,9 @@ export function Login() {
 
     try {
       await api.post('/api/auth/login', { login: login.trim(), password })
+      // Состояние входа живёт в App — сообщаем ему, иначе переход на «/» сразу
+      // вернёт нас обратно на форму, пока App считает нас гостем.
+      window.dispatchEvent(new Event(AUTHORIZED_EVENT))
       navigate('/', { replace: true })
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось войти')

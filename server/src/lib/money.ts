@@ -7,6 +7,10 @@ export class InvalidAmountError extends Error {
 
 const WHITESPACE = /[\s\u00A0\u202F]/g
 
+// 10 миллиардов рублей: больше в семейный бюджет не влезет, а дальше ломается
+// целочисленная арифметика копеек и SQLite начнёт хранить дробные значения.
+export const MAX_AMOUNT_KOPECKS = 1_000_000_000_000
+
 export function parseAmountToKopecks(input: string): number {
   const cleaned = String(input ?? '').replace(WHITESPACE, '').replace(',', '.')
 
@@ -16,8 +20,12 @@ export function parseAmountToKopecks(input: string): number {
 
   const kopecks = Math.round(Number(cleaned) * 100)
 
-  if (!Number.isFinite(kopecks) || kopecks <= 0) {
+  if (!Number.isSafeInteger(kopecks) || kopecks <= 0) {
     throw new InvalidAmountError()
+  }
+
+  if (kopecks > MAX_AMOUNT_KOPECKS) {
+    throw new InvalidAmountError('Слишком большая сумма')
   }
 
   return kopecks

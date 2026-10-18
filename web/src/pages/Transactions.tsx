@@ -2,8 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client.js'
 import type { Account, Category, Person, Transaction } from '../api/types.js'
 import { Modal } from '../components/Modal.js'
-import { formatDateFullRu } from '../lib/dates.js'
+import { formatDateFullRu, type Preset } from '../lib/dates.js'
 import { formatRub, parseAmountToKopecks } from '../lib/money.js'
+
+const PAGE_SIZE = 200
+
+const PERIODS: Array<{ id: Preset; label: string }> = [
+  { id: 'month', label: 'Месяц' },
+  { id: '3m', label: '3 месяца' },
+  { id: '6m', label: '6 месяцев' },
+  { id: '12m', label: 'Год' },
+]
 
 interface Row {
   id: number
@@ -17,6 +26,7 @@ interface Row {
   date: string
   accountId: number
   categoryId: number | null
+  isCorrection: boolean
 }
 
 export function Transactions() {
@@ -25,7 +35,10 @@ export function Transactions() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [person, setPerson] = useState<'' | Person>('')
   const [query, setQuery] = useState('')
+  const [preset, setPreset] = useState<Preset>('month')
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
   const [deleting, setDeleting] = useState<Row | null>(null)
@@ -38,15 +51,17 @@ export function Transactions() {
     setError(null)
     try {
       const [list, categoryResponse, accountResponse] = await Promise.all([
-        api.get<{ items: Transaction[] }>('/api/transactions', {
+        api.get<{ items: Transaction[]; total: number }>('/api/transactions', {
+          preset,
           person: person || undefined,
           q: query || undefined,
-          limit: 200,
+          limit: PAGE_SIZE,
         }),
         api.get<{ items: Category[] }>('/api/categories', { includeArchived: true }),
         api.get<{ items: Account[] }>('/api/accounts'),
       ])
       setTransactions(list.items)
+      setTotal(list.total)
       setCategories(categoryResponse.items)
       setAccounts(accountResponse.items)
     } catch (caught) {
@@ -54,7 +69,27 @@ export function Transactions() {
     } finally {
       setLoading(false)
     }
-  }, [person, query])
+  }, [person, query, preset])
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true)
+    setError(null)
+    try {
+      const list = await api.get<{ items: Transaction[]; total: number }>('/api/transactions', {
+        preset,
+        person: person || undefined,
+        q: query || undefined,
+        limit: PAGE_SIZE,
+        offset: transactions.length,
+      })
+      setTransactions((current) => [...current, ...list.items])
+      setTotal(list.total)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Не удалось загрузить ещё операции')
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [person, query, preset, transactions.length])
 
   useEffect(() => {
     void load()
@@ -82,6 +117,7 @@ export function Transactions() {
           date: item.date,
           accountId: item.accountId,
           categoryId: item.categoryId,
+          isCorrection: Boolean(category?.slug?.startsWith('unrecognized-')),
         }
       }),
     [transactions, categoryById, accountById],
@@ -150,6 +186,26 @@ export function Transactions() {
         <h1 className="text-2xl font-semibold tracking-tight">Операции</h1>
 
         <div className="flex flex-wrap items-end gap-3">
+          <div
+            role="group"
+            aria-label="Период"
+            className="flex self-end rounded-xl border border-border bg-surface p-1"
+          >
+            {PERIODS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={preset === item.id}
+                onClick={() => setPreset(item.id)}
+                className={`rounded-lg px-3 py-1.5 text-sm transition ${
+                  preset === item.id ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
           <div>
             <label htmlFor="filter-person" className="text-sm text-muted">
               Кто
@@ -233,13 +289,17 @@ export function Transactions() {
                   >
                     {formatRub(row.kind === 'expense' ? -row.amount : row.amount)}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => openEditor(row)}
-                    className="rounded-lg border border-border px-2 py-1 text-xs text-muted transition hover:text-text"
-                  >
-                    Изменить
-                  </button>
+                  {row.isCorrection ? (
+                    <span className="rounded-lg border border-border px-2 py-1 text-xs text-muted">Сверка</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openEditor(row)}
+                      className="rounded-lg border border-border px-2 py-1 text-xs text-muted transition hover:text-text"
+                    >
+                      Изменить
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setDeleting(row)}
@@ -253,6 +313,19 @@ export function Transactions() {
           </div>
         ))}
       </div>
+
+      {!loading && rows.length > 0 && transactions.length < total && (
+        <div className="mt-5 flex justify-center">
+          <button
+            type="button"
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+            className="rounded-xl border border-border px-4 py-2 text-sm text-muted transition hover:text-text disabled:opacity-40"
+          >
+            {loadingMore ? 'Загружаем…' : `Показать ещё (${total - transactions.length})`}
+          </button>
+        </div>
+      )}
 
       {editing && (
         <Modal title="Изменить операцию" onClose={() => setEditing(null)}>

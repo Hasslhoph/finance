@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Transactions } from './Transactions.js'
@@ -10,7 +10,20 @@ const CATEGORIES: Category[] = [
   { id: 1, name: 'Продукты', groupName: 'Еда', kind: 'expense', color: '#34D399', icon: '🛒', slug: null, archived: false, sortOrder: 1 },
   { id: 2, name: 'Такси', groupName: 'Транспорт', kind: 'expense', color: '#FBBF24', icon: '🚕', slug: null, archived: false, sortOrder: 2 },
   { id: 3, name: 'Старая категория', groupName: 'Прочее', kind: 'expense', color: '#64748B', icon: '📌', slug: null, archived: true, sortOrder: 3 },
+  { id: 4, name: 'Нераспознанное', groupName: 'Прочее', kind: 'expense', color: '#64748B', icon: '🕵️', slug: 'unrecognized-expense', archived: false, sortOrder: 4 },
 ]
+
+const CORRECTION: Transaction = {
+  id: 15,
+  kind: 'expense',
+  date: '2026-10-15',
+  amount: 5_000,
+  accountId: 7,
+  transferAccountId: null,
+  categoryId: 4,
+  person: null,
+  comment: 'Сверка остатков',
+}
 
 const ACCOUNTS: Account[] = [
   { id: 7, name: 'Карта Саши', kind: 'card', owner: 'sasha', openingBalance: 0, openingDate: '2026-10-01', archived: false, sortOrder: 1 },
@@ -24,11 +37,11 @@ const TRANSACTIONS: Transaction[] = [
   { id: 14, kind: 'expense', date: '2026-10-16', amount: 5_000, accountId: 7, transferAccountId: null, categoryId: 3, person: 'tanya', comment: 'Старое' },
 ]
 
-function mockApi(transactions = TRANSACTIONS) {
+function mockApi(transactions = TRANSACTIONS, total = transactions.length) {
   vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
     if (path === '/api/categories') return { items: CATEGORIES } as never
     if (path === '/api/accounts') return { items: ACCOUNTS } as never
-    if (path === '/api/transactions') return { items: transactions, total: transactions.length } as never
+    if (path === '/api/transactions') return { items: transactions, total } as never
     throw new Error(`Неожиданный путь ${path}`)
   })
   const del = vi.spyOn(api, 'del').mockResolvedValue(undefined as never)
@@ -108,11 +121,43 @@ describe('Transactions', () => {
     expect(patch).toHaveBeenCalledWith('/api/transactions/11', expect.objectContaining({ amount: 50_000 }))
   })
 
+  it('корректировку сверки нельзя править вручную, но можно удалить', async () => {
+    mockApi([CORRECTION])
+    renderTransactions()
+
+    const row = (await screen.findByText('Нераспознанное')).closest('li')!
+    expect(within(row).queryByRole('button', { name: 'Изменить' })).not.toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Удалить' })).toBeInTheDocument()
+  })
+
   it('пустое состояние, когда операций нет', async () => {
     mockApi([])
     renderTransactions()
 
     expect(await screen.findByText(/Операций за этот период нет/)).toBeInTheDocument()
+  })
+
+  it('фильтр по периоду уходит в запрос', async () => {
+    mockApi()
+    renderTransactions()
+
+    await screen.findByText(/Пятёрочка/)
+    await userEvent.click(screen.getByRole('button', { name: '3 месяца' }))
+
+    const calls = vi.mocked(api.get).mock.calls.filter((call) => call[0] === '/api/transactions')
+    const query = calls.at(-1)?.[1] as Record<string, unknown>
+    expect(query).toMatchObject({ preset: '3m' })
+  })
+
+  it('подгружает следующие операции', async () => {
+    mockApi(TRANSACTIONS, 500)
+    renderTransactions()
+
+    await screen.findByText(/Пятёрочка/)
+    await userEvent.click(screen.getByRole('button', { name: /Показать ещё/ }))
+
+    const calls = vi.mocked(api.get).mock.calls.filter((call) => call[0] === '/api/transactions')
+    expect(calls.at(-1)?.[1]).toMatchObject({ offset: TRANSACTIONS.length })
   })
 
   it('фильтр по человеку уходит в запрос', async () => {

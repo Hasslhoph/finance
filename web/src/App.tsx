@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { UNAUTHORIZED_EVENT, api } from './api/client.js'
+import { AUTHORIZED_EVENT, UNAUTHORIZED_EVENT, api } from './api/client.js'
 import { Layout } from './components/Layout.js'
 import { Accounts } from './pages/Accounts.js'
 import { Categories } from './pages/Categories.js'
@@ -31,8 +31,14 @@ export function App() {
 
   useEffect(() => {
     const onUnauthorized = () => setAuth('anonymous')
+    const onAuthorized = () => setAuth('authenticated')
+
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
-    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    window.addEventListener(AUTHORIZED_EVENT, onAuthorized)
+    return () => {
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+      window.removeEventListener(AUTHORIZED_EVENT, onAuthorized)
+    }
   }, [])
 
   if (auth === 'checking') {

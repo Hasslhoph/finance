@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect } from 'vitest'
 import { checkBalance } from './reconciliation.js'
+import { deleteTransaction, updateTransaction } from './transactions.js'
 import { accountBalance } from './balances.js'
 import { createAccount } from './accounts.js'
 import { createTestDb, countCorrections, dashboardExpense, rawTx, salaryId } from '../../test/helpers.js'
@@ -8,6 +9,7 @@ import type { Db } from '../db/database.js'
 describe('checkBalance', () => {
   let db: Db
   let accountId: number
+  let otherAccountId: number
 
   beforeEach(() => {
     db = createTestDb()
@@ -16,6 +18,13 @@ describe('checkBalance', () => {
       kind: 'card',
       owner: 'sasha',
       openingBalance: 100_000,
+      openingDate: '2026-10-01',
+    }).id
+    otherAccountId = createAccount(db, {
+      name: 'Вторая карта',
+      kind: 'card',
+      owner: 'tanya',
+      openingBalance: 0,
       openingDate: '2026-10-01',
     }).id
   })
@@ -82,5 +91,48 @@ describe('checkBalance', () => {
       person: 'sasha',
     })
     expect(accountBalance(db, accountId)).toBe(96_000)
+  })
+
+  it('сверка обратно к расчётному остатку убирает корректировку', () => {
+    checkBalance(db, { accountId, date: '2026-10-10', actualBalance: 95_000 })
+    const back = checkBalance(db, { accountId, date: '2026-10-10', actualBalance: 100_000 })
+
+    expect(back.correctionId).toBeNull()
+    expect(countCorrections(db, accountId)).toBe(0)
+    expect(accountBalance(db, accountId)).toBe(100_000)
+  })
+
+  it('корректировку можно удалить из ленты операций', () => {
+    const result = checkBalance(db, { accountId, date: '2026-10-10', actualBalance: 95_000 })
+
+    expect(() => deleteTransaction(db, result.correctionId!)).not.toThrow()
+    expect(accountBalance(db, accountId)).toBe(100_000)
+  })
+
+  it('корректировку нельзя править вручную — нужна новая сверка', () => {
+    const result = checkBalance(db, { accountId, date: '2026-10-10', actualBalance: 95_000 })
+
+    expect(() => updateTransaction(db, result.correctionId!, { amount: 3_000 })).toThrow(/сверк/i)
+    expect(accountBalance(db, accountId)).toBe(95_000)
+  })
+
+  it('удаление корректировки убирает и запись о сверке', () => {
+    const result = checkBalance(db, { accountId, date: '2026-10-10', actualBalance: 95_000 })
+    deleteTransaction(db, result.correctionId!)
+
+    const checks = db.prepare('select count(*) as c from balance_checks where account_id = ?').get(accountId) as {
+      c: number
+    }
+    expect(checks.c).toBe(0)
+  })
+
+  it('сверка второго счёта не мешает сверке первого', () => {
+    checkBalance(db, { accountId, date: '2026-10-10', actualBalance: 95_000 })
+    checkBalance(db, { accountId: otherAccountId, date: '2026-10-10', actualBalance: 1_000 })
+
+    expect(accountBalance(db, accountId)).toBe(95_000)
+    expect(accountBalance(db, otherAccountId)).toBe(1_000)
+    expect(countCorrections(db, accountId)).toBe(1)
+    expect(countCorrections(db, otherAccountId)).toBe(1)
   })
 })

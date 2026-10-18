@@ -76,7 +76,10 @@ export function buildTestApp(db: Db): FastifyInstance {
     if (error instanceof ZodError) {
       return reply.code(400).send({ error: error.issues[0]?.message ?? 'Неверные данные' })
     }
-    const status = error.statusCode ?? 400
+    const status = error.statusCode ?? 500
+    if (status >= 500) {
+      return reply.code(500).send({ error: 'Что-то сломалось на сервере, попробуйте ещё раз' })
+    }
     return reply.code(status).send({ error: error.message })
   })
   return app
