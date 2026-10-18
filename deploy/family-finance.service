@@ -1,0 +1,28 @@
+[Unit]
+Description=Family finance API
+After=network.target
+
+[Service]
+Type=simple
+User=finance
+Group=finance
+WorkingDirectory=/opt/family-finance/server
+EnvironmentFile=/etc/family-finance/env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=2
+
+# Лимиты: на сервере живёт AmneziaWG, ему нужны ресурсы больше, чем приложению
+MemoryMax=256M
+CPUQuota=50%
+Nice=10
+
+# Ограничения
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/family-finance
+
+[Install]
+WantedBy=multi-user.target
