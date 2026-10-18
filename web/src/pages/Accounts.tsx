@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import type { Account } from '../api/types.js'
 import { CheckBalanceDialog } from '../components/CheckBalanceDialog.js'
+import { EditAccountDialog } from '../components/EditAccountDialog.js'
 import { formatRub, parseBalanceToKopecks } from '../lib/money.js'
 import { todayIso } from '../lib/dates.js'
 
@@ -23,6 +24,7 @@ export function Accounts() {
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [checking, setChecking] = useState<Account | null>(null)
+  const [editing, setEditing] = useState<Account | null>(null)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<Account['kind']>('card')
   const [owner, setOwner] = useState('sasha')
@@ -119,6 +121,16 @@ export function Accounts() {
               type="button"
               onClick={() => {
                 setStatus(null)
+                setEditing(account)
+              }}
+              className="rounded-lg border border-border px-2 py-1 text-xs text-muted transition hover:text-text"
+            >
+              Изменить
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setStatus(null)
                 setChecking(account)
               }}
               className="rounded-lg border border-border px-2 py-1 text-xs text-muted transition hover:text-text"
@@ -134,7 +146,7 @@ export function Accounts() {
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor="account-name" className="text-sm text-muted">
-              Название счёта
+              Название нового счёта
             </label>
             <input
               id="account-name"
@@ -194,6 +206,17 @@ export function Accounts() {
           Добавить счёт
         </button>
       </div>
+
+      {editing && (
+        <EditAccountDialog
+          account={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(message) => {
+            setStatus(message)
+            void load()
+          }}
+        />
+      )}
 
       {checking && (
         <CheckBalanceDialog
